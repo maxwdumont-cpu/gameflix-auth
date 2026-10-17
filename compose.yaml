@@ -1,0 +1,25 @@
+# Local MySQL 8.4 for the GameFlix auth service.
+# Credentials come from .env (gitignored) - see .env.example.
+#   docker compose up -d
+services:
+  mysql:
+    image: mysql:8.4
+    container_name: gameflix-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?set in .env}
+      MYSQL_DATABASE: gameflix
+      MYSQL_USER: gameflix_app
+      MYSQL_PASSWORD: ${DB_PASSWORD:?set in .env}
+    ports:
+      - "127.0.0.1:3307:3306"
+    volumes:
+      - gameflix-mysql-data:/var/lib/mysql
+      - ./db/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-p${MYSQL_ROOT_PASSWORD}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  gameflix-mysql-data:

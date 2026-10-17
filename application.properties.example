@@ -1,0 +1,12 @@
+# Copy to application-local.properties (gitignored) in the project root and fill in.
+# Environment variables with the same meaning take effect too:
+#   DB_URL, DB_USERNAME, DB_PASSWORD, GAMEFLIX_JWT_SECRET, GAMEFLIX_FRONTEND_ORIGIN, PORT
+
+spring.datasource.url=jdbc:mysql://localhost:3307/gameflix
+spring.datasource.username=gameflix_app
+spring.datasource.password=CHANGE_ME
+
+# openssl rand -base64 48
+gameflix.jwt.secret=CHANGE_ME_BASE64_AT_LEAST_32_BYTES
+
+gameflix.cors.allowed-origin=http://localhost:3000

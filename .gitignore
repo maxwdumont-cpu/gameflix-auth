@@ -1,0 +1,8 @@
+target/
+application-local.properties
+.env
+*.iml
+.idea/
+.vscode/
+*.log
+evidence/raw/
