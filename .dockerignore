@@ -1,0 +1,10 @@
+# Keep secrets and bulky files out of the Docker build context.
+.env
+application-local.properties
+.git
+.github
+.idea
+.vscode
+evidence
+*.iml
+*.log
