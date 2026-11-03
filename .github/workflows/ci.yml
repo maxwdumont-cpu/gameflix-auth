@@ -1,0 +1,99 @@
+name: Spring Boot CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    # The tests are full-stack (real Spring context against real MySQL), so the job gets
+    # its own throwaway MySQL 8.4. These credentials exist only inside this runner.
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: ci-root-throwaway
+          MYSQL_DATABASE: gameflix_test
+          MYSQL_USER: gameflix_app
+          MYSQL_PASSWORD: ci-throwaway
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -pci-root-throwaway"
+          --health-interval=5s
+          --health-timeout=3s
+          --health-retries=30
+
+    env:
+      DB_URL: jdbc:mysql://127.0.0.1:3306/gameflix_test
+      TEST_DB_URL: jdbc:mysql://127.0.0.1:3306/gameflix_test
+      DB_USERNAME: gameflix_app
+      DB_PASSWORD: ci-throwaway
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # The project targets Java 21 (pom.xml), so JDK 21 rather than the template's 17.
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+          cache: 'maven'
+
+      # The service refuses to start without a signing key. Generate a fresh one per run
+      # instead of storing one anywhere.
+      - name: Generate throwaway JWT secret
+        run: |
+          secret=$(openssl rand -base64 48)
+          echo "::add-mask::$secret"
+          echo "GAMEFLIX_JWT_SECRET=$secret" >> "$GITHUB_ENV"
+
+      - name: Build with Maven (runs the MockMvc tests against MySQL)
+        run: mvn -B clean package
+
+      - name: Build Docker image
+        run: docker build -t gameflix-backend .
+
+      # Run the image that was just built and hit the three endpoints.
+      - name: Smoke test the container
+        run: |
+          docker run -d --name gameflix --network host \
+            -e DB_URL -e DB_USERNAME -e DB_PASSWORD -e GAMEFLIX_JWT_SECRET \
+            gameflix-backend
+          for i in $(seq 1 60); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8081/api/users/me || true)
+            [ "$code" = "401" ] && break
+            sleep 2
+          done
+          echo "Service is up (unauthenticated /api/users/me -> $code)"
+
+          reg=$(curl -s -o /dev/null -w '%{http_code}' -X POST http://localhost:8081/api/auth/register \
+            -H 'Content-Type: application/json' \
+            -d '{"email":"ci.player@example.com","displayName":"CI Player","password":"Ci-Throwaway-123"}')
+          echo "POST /api/auth/register -> $reg"
+          [ "$reg" = "201" ]
+
+          token=$(curl -sf -X POST http://localhost:8081/api/auth/login \
+            -H 'Content-Type: application/json' \
+            -d '{"email":"ci.player@example.com","password":"Ci-Throwaway-123"}' | jq -r .accessToken)
+          echo "::add-mask::$token"
+          echo "POST /api/auth/login -> token issued"
+
+          me=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8081/api/users/me \
+            -H "Authorization: Bearer $token")
+          echo "GET /api/users/me with token -> $me"
+          [ "$me" = "200" ]
+
+      - name: Container logs
+        if: always()
+        run: docker logs gameflix 2>&1 | tail -n 60 || true
